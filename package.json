@@ -22,7 +22,7 @@
   "dependencies": {
     "@hono/zod-validator": "^0.7.2",
     "hono": "^4.8.5",
-    "redis-monorepo": "github:redis/node-redis",
+    "redis-monorepo": "file:/Users/nikolay.karadzhov/Projects/node-redis",
     "zod": "^4.0.8"
   },
   "devDependencies": {

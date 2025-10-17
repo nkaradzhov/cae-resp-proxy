@@ -33,7 +33,7 @@ export const DEFAULT_LISTEN_HOST = "127.0.0.1";
 export const DEFAULT_ENABLE_LOGGING = false;
 export const DEFAULT_API_PORT = 3000;
 
-const proxyConfigSchema = z.object({
+export const proxyConfigSchema = z.object({
 	listenPort: z.coerce.number().default(DEFAULT_LISTEN_PORT),
 	listenHost: z.string().optional().default(DEFAULT_LISTEN_HOST),
 	targetHost: z.string(),

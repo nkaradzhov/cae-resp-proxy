@@ -7,15 +7,19 @@ import {
 	type RedisProxy,
 } from "redis-monorepo/packages/test-utils/lib/redis-proxy.ts";
 import { createApp } from "./app";
+import { makeId } from "./proxy-store";
+
+const TARGET_HOST = "127.0.0.1"
 
 describe("Redis Proxy API", () => {
 	let app: any;
 	let proxy: RedisProxy;
 	let mockRedisServer: any;
+	let targetPort: number;
 
 	beforeAll(async () => {
 		const freePort = await getFreePortNumber();
-		const targetPort = await getFreePortNumber();
+		targetPort = await getFreePortNumber();
 
 		mockRedisServer = Bun.listen({
 			hostname: "127.0.0.1",
@@ -85,7 +89,7 @@ describe("Redis Proxy API", () => {
 		const testConfig = {
 			listenPort: freePort,
 			listenHost: "127.0.0.1",
-			targetHost: "127.0.0.1",
+			targetHost: TARGET_HOST,
 			targetPort: targetPort,
 			timeout: 30000,
 			enableLogging: true,
@@ -113,7 +117,7 @@ describe("Redis Proxy API", () => {
 		const res = await app.request("/stats");
 		expect(res.status).toBe(200);
 
-		const stats = await res.json();
+		const stats = (await res.json())[makeId(TARGET_HOST, targetPort)];
 		expect(stats).toHaveProperty("activeConnections");
 		expect(stats).toHaveProperty("totalConnections");
 		expect(stats).toHaveProperty("connections");
@@ -125,10 +129,9 @@ describe("Redis Proxy API", () => {
 		const res = await app.request("/connections");
 		expect(res.status).toBe(200);
 
-		const result = await res.json();
-		expect(result).toHaveProperty("connectionIds");
-		expect(Array.isArray(result.connectionIds)).toBe(true);
-		expect(result.connectionIds.length).toBe(0);
+		const result = (await res.json())[makeId(TARGET_HOST, targetPort)];
+    expect(result).toBeArray();
+		expect(result.length).toBe(0);
 	});
 
 	test("POST /send-to-client with invalid connection", async () => {
@@ -217,16 +220,16 @@ describe("Redis Proxy API", () => {
 
 					const statsRes = await app.request("/stats");
 					expect(statsRes.status).toBe(200);
-					const stats = await statsRes.json();
+					const stats = (await statsRes.json())[makeId(TARGET_HOST, targetPort)];
 					expect(stats.activeConnections).toBe(1);
 					expect(stats.totalConnections).toBeGreaterThanOrEqual(1);
 					expect(stats.connections.length).toBe(1);
 
 					const connectionsRes = await app.request("/connections");
 					expect(connectionsRes.status).toBe(200);
-					const connectionsResult = await connectionsRes.json();
-					expect(connectionsResult.connectionIds.length).toBe(1);
-					const connectionId = connectionsResult.connectionIds[0];
+					const connectionsResult = (await connectionsRes.json())[makeId(TARGET_HOST, targetPort)];
+					expect(connectionsResult.length).toBe(1);
+					const connectionId = connectionsResult[0];
 					expect(typeof connectionId).toBe("string");
 					expect(connectionId.length).toBeGreaterThan(0);
 
@@ -255,7 +258,7 @@ describe("Redis Proxy API", () => {
 					await new Promise((resolve) => setTimeout(resolve, 100));
 
 					const finalStatsRes = await app.request("/stats");
-					const finalStats = await finalStatsRes.json();
+					const finalStats = (await finalStatsRes.json())[makeId(TARGET_HOST, targetPort)];
 					expect(finalStats.activeConnections).toBe(0);
 
 					resolve();
@@ -289,15 +292,15 @@ describe("Redis Proxy API", () => {
 		await new Promise((resolve) => setTimeout(resolve, 100));
 
 		const statsRes = await app.request("/stats");
-		const stats = await statsRes.json();
+		const stats = (await statsRes.json())[makeId(TARGET_HOST, targetPort)];
 		expect(stats.activeConnections).toBe(1);
 		expect(stats.totalConnections).toBeGreaterThanOrEqual(1);
 		expect(stats.connections.length).toBe(1);
 
 		const connectionsRes = await app.request("/connections");
-		const connectionsResult = await connectionsRes.json();
-		expect(connectionsResult.connectionIds.length).toBe(1);
-		const connectionId = connectionsResult.connectionIds[0];
+		const connectionsResult = (await connectionsRes.json())[makeId(TARGET_HOST, targetPort)];
+		expect(connectionsResult.length).toBe(1);
+		const connectionId = connectionsResult[0];
 
 		const result = await client.sendCommand(["FOO"]);
 		expect(result).toBe("BAR" as unknown as SimpleStringReply);
@@ -319,7 +322,7 @@ describe("Redis Proxy API", () => {
 		await new Promise((resolve) => setTimeout(resolve, 100));
 
 		const finalStatsRes = await app.request("/stats");
-		const finalStats = await finalStatsRes.json();
+		const finalStats = (await finalStatsRes.json())[makeId(TARGET_HOST, targetPort)];
 		expect(finalStats.activeConnections).toBe(0);
 	});
 });
