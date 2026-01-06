@@ -12,6 +12,7 @@ import {
 } from "redis-monorepo/packages/test-utils/lib/proxy/redis-proxy.ts";
 import applyDefaultInterceptors from "./default_interceptors/index.ts";
 import ProxyStore, { makeId } from "./proxy-store.ts";
+import applyPredefinedScenario from "./scenarios/index.ts";
 import {
 	connectionIdsQuerySchema,
 	type ExtendedProxyConfig,
@@ -20,6 +21,7 @@ import {
 	interceptorSchema,
 	paramSchema,
 	parseBuffer,
+	predefinedScenarioParamSchema,
 	proxyConfigSchema,
 	scenarioSchema,
 } from "./util.ts";
@@ -172,6 +174,15 @@ export function createApp(testConfig?: ExtendedProxyConfig) {
 
 		return c.json({ success: true, totalResponses: responses.length });
 	});
+
+	app.post(
+		"/scenarios/predefined/:scenario",
+		zValidator("param", predefinedScenarioParamSchema),
+		async (c) => {
+			const { scenario } = c.req.valid("param");
+			return await applyPredefinedScenario(scenario, c, proxyStore, config);
+		},
+	);
 
 	app.post("/interceptors", zValidator("json", interceptorSchema), async (c) => {
 		const { name, match, response, encoding } = c.req.valid("json");

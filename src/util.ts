@@ -36,6 +36,10 @@ export const interceptorSchema = z.object({
 	response: z.string(),
 });
 
+export const predefinedScenarioParamSchema = z.object({
+	scenario: z.enum(["remove-add", "bar"]),
+});
+
 export function parseBuffer(data: string, encoding: "base64" | "raw"): Buffer {
 	switch (encoding) {
 		case "base64":
