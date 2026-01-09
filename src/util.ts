@@ -37,7 +37,7 @@ export const interceptorSchema = z.object({
 });
 
 export const predefinedScenarioParamSchema = z.object({
-	scenario: z.enum(["remove-add", "bar"]),
+	scenario: z.enum(["remove-add", "remove", "add", "slot-shuffle"]),
 });
 
 export function parseBuffer(data: string, encoding: "base64" | "raw"): Buffer {
