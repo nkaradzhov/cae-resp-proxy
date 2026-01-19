@@ -133,23 +133,61 @@ Key Endpoints: `POST /send-to-client/{id}`, `POST /send-to-all-clients`, `GET /c
 ### Basic Usage
 
 #### Docker (Recommended)
-Use the official docker [image](https://hub.docker.com/r/redislabs/client-resp-proxy) or
+
+**Two image variants available:**
+
+1. **Base Image** (`redislabs/client-resp-proxy:latest`) - Proxy only, requires external Redis
+2. **Standalone Image** (`redislabs/client-resp-proxy:standalone`) - Proxy + embedded Redis in one container
+
+##### Using Base Image (with external Redis)
 
 ```bash
-# Build the docker image first
-docker build -t resp-proxy .
-```
+# Pull from Docker Hub
+docker pull redislabs/client-resp-proxy:latest
 
-```bash
 # Run with Docker - connects to Redis on host
 docker run -d \
-  -p 6379:6379 \ # the proxy will listen for incoming connections on this port
-  -p 3000:3000 \ # the rest api will listen for http requests on this port
-  -e TARGET_HOST=host.docker.internal \ #<-- redis server host ( the proxy target )
-  -e TARGET_PORT=6380 \ # redis server port
-  -e LISTEN_PORT=6379 \ # proxy listen port
-  -e API_PORT = 3000 \ # rest api port
-  resp-proxy
+  -p 6379:6379 -p 3000:3000 \
+  -e TARGET_HOST=host.docker.internal \
+  -e TARGET_PORT=6380 \
+  redislabs/client-resp-proxy
+```
+
+##### Using Standalone Image (embedded Redis)
+
+Perfect for development, demos, or mocked clusters:
+
+```bash
+# Pull standalone image
+docker pull redislabs/client-resp-proxy:standalone
+
+# Run with embedded Redis
+docker run -d \
+  -p 6379:6379 -p 3000:3000 \
+  redislabs/client-resp-proxy:standalone
+```
+
+##### Mocked Cluster Mode (Standalone Image)
+
+Run a mocked multi-node Redis cluster in a single container:
+
+```bash
+docker run -d \
+  -p 6379:6379 -p 6380:6380 -p 6381:6381 -p 3000:3000 \
+  -e LISTEN_PORT="6379,6380,6381" \
+  -e DEFAULT_INTERCEPTORS="cluster,logger" \
+  -e ENABLE_LOGGING=true \
+  redislabs/client-resp-proxy:standalone
+```
+
+##### Building Images Locally
+
+```bash
+# Build base image
+docker build -t cae-resp-proxy:latest -f Dockerfile .
+
+# Build standalone image (extends base)
+docker build -t cae-resp-proxy:standalone -f standalone.Dockerfile .
 ```
 
 ### Local Development
@@ -197,11 +235,14 @@ bun run proxy
 
 | Parameter | CLI Flag | Environment Variable | Default | Description |
 |-----------|----------|---------------------|---------|-------------|
-| Listen Port | `--listenPort` | `LISTEN_PORT` | `6379` | Port for Redis clients to connect to |
+| Listen Port | `--listenPort` | `LISTEN_PORT` | `6379` | Port(s) for Redis clients (comma-separated for multiple) |
 | Listen Host | `--listenHost` | `LISTEN_HOST` | `127.0.0.1` | Host interface to bind to |
 | Timeout | `--timeout` | `TIMEOUT` | - | Connection timeout (ms) |
 | Enable Logging | `--enableLogging` | `ENABLE_LOGGING` | `false` | Verbose logging |
 | API Port | `--apiPort` | `API_PORT` | `3000` | HTTP API port |
+| Default Interceptors | - | `DEFAULT_INTERCEPTORS` | - | Comma-separated interceptors (e.g., "cluster,logger") |
+| Redis Port | - | `REDIS_PORT` | `4000` | Port for embedded Redis (standalone image only) |
+
 
 ## HTTP API Reference
 

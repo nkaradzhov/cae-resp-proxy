@@ -51,15 +51,31 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Build and push Docker image
+      - name: Build and push base Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:latest
             ${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push standalone Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./standalone.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            BASE_IMAGE=${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.VERSION }}
+          tags: |
+            ${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:standalone
+            ${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:standalone-${{ steps.version.outputs.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -72,10 +88,16 @@ jobs:
           
           # If GitHub's generation worked and has content beyond just "Full Changelog"
           if [[ "$GENERATED_NOTES" != *"**Full Changelog**"* ]] && [[ -n "$GENERATED_NOTES" ]]; then
-            RELEASE_BODY="## Docker Image
+            RELEASE_BODY="## Docker Images
 
+          **Base Image (Proxy only):**
           \`\`\`bash
           docker pull ${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.VERSION }}
+          \`\`\`
+
+          **Standalone Image (Proxy + Embedded Redis):**
+          \`\`\`bash
+          docker pull ${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:standalone-${{ steps.version.outputs.VERSION }}
           \`\`\`
 
           $GENERATED_NOTES"
@@ -90,10 +112,16 @@ jobs:
               CHANGELOG_LINK=""
             fi
             
-            RELEASE_BODY="## Docker Image
+            RELEASE_BODY="## Docker Images
 
+          **Base Image (Proxy only):**
           \`\`\`bash
           docker pull ${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.VERSION }}
+          \`\`\`
+
+          **Standalone Image (Proxy + Embedded Redis):**
+          \`\`\`bash
+          docker pull ${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:standalone-${{ steps.version.outputs.VERSION }}
           \`\`\`
 
           ## What's Changed
