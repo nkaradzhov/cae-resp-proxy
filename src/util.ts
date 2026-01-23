@@ -24,11 +24,6 @@ export const connectionIdsQuerySchema = z.object({
 	encoding: z.enum(["base64", "raw"]).default("base64"),
 });
 
-export const scenarioSchema = z.object({
-	responses: z.array(z.string()).min(1, "At least one response is required"),
-	encoding: z.enum(["base64", "raw"]).default("base64"),
-});
-
 export const interceptorSchema = z.object({
 	name: z.string(),
 	encoding: z.enum(["raw", "base64"]),
@@ -39,6 +34,80 @@ export const interceptorSchema = z.object({
 export const predefinedScenarioParamSchema = z.object({
 	scenario: z.enum(["remove-add", "remove", "add", "slot-shuffle"]),
 });
+
+export const slotMigrateEffectSchema = z.object({
+	effect: z.enum(["add", "remove", "remove-add", "slot-shuffle"]),
+});
+
+export type SlotMigrateEffect = z.infer<typeof slotMigrateEffectSchema>["effect"];
+
+export interface ActionTriggerRequirement {
+	dbconfig: unknown;
+	cluster: unknown;
+	description: string;
+}
+
+export interface ActionTrigger {
+	name: string;
+	description: string;
+	requirements: ActionTriggerRequirement[];
+}
+
+export interface ListActionTriggersResponse {
+	effect: string;
+	cluster: { index: number; nodes: number };
+	triggers: ActionTrigger[];
+}
+
+// Action types matching re_fault_injector ActionType enum
+export const actionTypeSchema = z.enum([
+	"dmc_restart",
+	"failover",
+	"reshard",
+	"sequence_of_actions",
+	"network_failure",
+	"execute_rlutil_command",
+	"execute_rladmin_command",
+	"enable_entraid",
+	"upgrade",
+	"wait",
+	"migrate",
+	"bind",
+	"update_cluster_config",
+	"delete_database",
+	"create_database",
+	"shard_failure",
+	"node_failure",
+	"node_remove",
+	"proxy_failure",
+	"cluster_failure",
+	"slot_migrate",
+]);
+
+export type ActionType = z.infer<typeof actionTypeSchema>;
+
+export const actionRequestSchema = z.object({
+	type: actionTypeSchema,
+	parameters: z.record(z.string(), z.unknown()),
+});
+
+export type ActionRequest = z.infer<typeof actionRequestSchema>;
+
+export const actionIdParamSchema = z.object({
+	action_id: z.string(),
+});
+
+export type ActionStatus = "pending" | "running" | "success" | "failed" | "unknown";
+
+export interface ActionRecord {
+	id: string;
+	type: ActionType;
+	parameters: Record<string, unknown>;
+	status: ActionStatus;
+	submittedAt: Date;
+	error?: string | null;
+	output?: unknown;
+}
 
 export function parseBuffer(data: string, encoding: "base64" | "raw"): Buffer {
 	switch (encoding) {

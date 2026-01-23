@@ -6,7 +6,6 @@ import type { ExtendedProxyConfig } from "../util";
 import {
 	buildSMigratedNotification,
 	buildSMigratingNotification,
-	createCustomClusterSlotsInterceptor,
 	getSlotRangesForProxy,
 } from "./helpers";
 import { getNextSequenceId } from "./sequence-gen";

@@ -10,10 +10,15 @@ import {
 	RedisProxy,
 	type SendResult,
 } from "redis-monorepo/packages/test-utils/lib/proxy/redis-proxy.ts";
+import { executeAction } from "./actions/index.ts";
 import applyDefaultInterceptors from "./default_interceptors/index.ts";
 import ProxyStore, { makeId } from "./proxy-store.ts";
-import applyPredefinedScenario from "./scenarios/index.ts";
 import {
+	type ActionRecord,
+	type ActionTrigger,
+	type ListActionTriggersResponse,
+	actionIdParamSchema,
+	actionRequestSchema,
 	connectionIdsQuerySchema,
 	type ExtendedProxyConfig,
 	encodingSchema,
@@ -21,9 +26,9 @@ import {
 	interceptorSchema,
 	paramSchema,
 	parseBuffer,
-	predefinedScenarioParamSchema,
 	proxyConfigSchema,
-	scenarioSchema,
+	slotMigrateEffectSchema,
+	type SlotMigrateEffect,
 } from "./util.ts";
 
 const startNewProxy = (config: ProxyConfig) => {
@@ -148,42 +153,6 @@ export function createApp(testConfig?: ExtendedProxyConfig) {
 		return c.json({ success, connectionId });
 	});
 
-	app.post("/scenarios", zValidator("json", scenarioSchema), async (c) => {
-		const { responses, encoding } = c.req.valid("json");
-
-		const responsesBuffers = responses.map((response) => parseBuffer(response, encoding));
-		let currentIndex = 0;
-
-		const scenarioInterceptor: InterceptorDescription = {
-			name: "scenario-interceptor",
-			fn: async (data: Buffer, next: Next, state: InterceptorState): Promise<Buffer> => {
-				state.invokeCount++;
-				if (currentIndex < responsesBuffers.length) {
-					state.matchCount++;
-					const response = responsesBuffers[currentIndex] as Buffer;
-					currentIndex++;
-					return response;
-				}
-				return await next(data);
-			},
-		};
-
-		for (const proxy of proxyStore.proxies) {
-			proxy.addGlobalInterceptor(scenarioInterceptor);
-		}
-
-		return c.json({ success: true, totalResponses: responses.length });
-	});
-
-	app.post(
-		"/scenarios/predefined/:scenario",
-		zValidator("param", predefinedScenarioParamSchema),
-		async (c) => {
-			const { scenario } = c.req.valid("param");
-			return await applyPredefinedScenario(scenario, c, proxyStore, config);
-		},
-	);
-
 	app.post("/interceptors", zValidator("json", interceptorSchema), async (c) => {
 		const { name, match, response, encoding } = c.req.valid("json");
 
@@ -207,6 +176,143 @@ export function createApp(testConfig?: ExtendedProxyConfig) {
 		}
 
 		return c.json({ success: true, name });
+	});
+
+	// In-memory action storage
+	const actionStore = new Map<string, ActionRecord>();
+
+	// Generate unique action ID
+	const generateActionId = (): string => {
+		return `action-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+	};
+
+	// POST /action - Submit an action
+	app.post("/action", zValidator("json", actionRequestSchema), async (c) => {
+		const { type, parameters } = c.req.valid("json");
+
+		const actionId = generateActionId();
+		const actionRecord: ActionRecord = {
+			id: actionId,
+			type,
+			parameters,
+			status: "pending",
+			submittedAt: new Date(),
+			error: null,
+			output: null,
+		};
+
+		actionStore.set(actionId, actionRecord);
+
+		// Execute the action asynchronously
+		executeAction(type, parameters, proxyStore, config)
+			.then((result) => {
+				actionRecord.status = result.status;
+				actionRecord.output = "Done";
+				actionRecord.error = result.error;
+			})
+			.catch((error) => {
+				actionRecord.status = "failed";
+				actionRecord.error = error instanceof Error ? error.message : String(error);
+			});
+
+		return c.json({ action_id: actionId });
+	});
+
+	// GET /action/:action_id - Get action status
+	app.get("/action/:action_id", zValidator("param", actionIdParamSchema), (c) => {
+		const { action_id } = c.req.valid("param");
+
+		const action = actionStore.get(action_id);
+		if (!action) {
+			return c.json({ error: "Action not found" }, 404);
+		}
+
+		return c.json({
+			status: action.status,
+			error: action.error,
+			output: action.output,
+		});
+	});
+
+	// Hardcoded triggers for each effect
+	const triggersMap: Record<SlotMigrateEffect, ActionTrigger[]> = {
+		add: [
+			{
+				name: "add-node-trigger-1",
+				description: "Trigger when a new node is added to the cluster",
+				requirements: [
+					{ dbconfig: {}, cluster: { minNodes: 3 }, description: "Requires at least 3 shards and 3 nodes" },
+				],
+			},
+			{
+				name: "add-node-trigger-2",
+				description: "Trigger for rebalancing after node addition",
+				requirements: [
+					{ dbconfig: {}, cluster: { healthy: true }, description: "Requires replication enabled and healthy cluster" },
+				],
+			},
+		],
+		remove: [
+			{
+				name: "remove-node-trigger-1",
+				description: "Trigger when a node is removed from the cluster",
+				requirements: [
+					{ dbconfig: {}, cluster: { minNodes: 2 }, description: "Requires at least 2 shards and 2 nodes" },
+				],
+			},
+			{
+				name: "remove-node-trigger-2",
+				description: "Trigger for slot migration before node removal",
+				requirements: [
+					{ dbconfig: {}, cluster: { noFailover: true }, description: "Requires persistence and no ongoing failover" },
+				],
+			},
+		],
+		"remove-add": [
+			{
+				name: "remove-add-trigger-1",
+				description: "Trigger for combined remove and add operation",
+				requirements: [
+					{ dbconfig: {}, cluster: { minNodes: 3 }, description: "Requires at least 3 shards and 3 nodes" },
+				],
+			},
+			{
+				name: "remove-add-trigger-2",
+				description: "Trigger for atomic node replacement",
+				requirements: [
+					{ dbconfig: {}, cluster: { quorum: true }, description: "Requires replication and quorum" },
+				],
+			},
+		],
+		"slot-shuffle": [
+			{
+				name: "slot-shuffle-trigger-1",
+				description: "Trigger for redistributing slots across nodes",
+				requirements: [
+					{ dbconfig: {}, cluster: { balanced: false }, description: "Requires at least 2 shards and unbalanced cluster" },
+				],
+			},
+			{
+				name: "slot-shuffle-trigger-2",
+				description: "Trigger for optimizing slot distribution",
+				requirements: [
+					{ dbconfig: {}, cluster: { healthy: true }, description: "Requires auto-balance enabled and healthy cluster" },
+				],
+			},
+		],
+	};
+
+	// GET /slot-migrate - List action triggers for an effect
+	app.get("/slot-migrate", zValidator("query", slotMigrateEffectSchema), (c) => {
+		const { effect } = c.req.valid("query");
+
+		const response: ListActionTriggersResponse = {
+			effect,
+			cluster: { index: 0, nodes: proxyStore.nodeIds.length },
+			triggers: triggersMap[effect],
+		};
+
+		return c.json(response);
 	});
 
 	return { app, proxy: proxyStore.proxies[0] as RedisProxy, config };
