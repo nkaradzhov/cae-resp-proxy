@@ -51,6 +51,30 @@ export function createApp(testConfig?: ExtendedProxyConfig) {
 
 	config.defaultInterceptors && applyDefaultInterceptors(config.defaultInterceptors, proxyStore);
 
+	// Simulate the endpoints being offline: drop every client connection and
+	// stop accepting new ones until rejecting is stopped again.
+	let rejectingTraffic = false;
+
+	app.post("/reject-traffic/start", async (c) => {
+		if (!rejectingTraffic) {
+			rejectingTraffic = true;
+			for (const proxy of proxyStore.proxies) {
+				await proxy.stop();
+			}
+		}
+		return c.json({ success: true, rejecting: rejectingTraffic });
+	});
+
+	app.post("/reject-traffic/stop", async (c) => {
+		if (rejectingTraffic) {
+			rejectingTraffic = false;
+			for (const proxy of proxyStore.proxies) {
+				await proxy.start();
+			}
+		}
+		return c.json({ success: true, rejecting: rejectingTraffic });
+	});
+
 	app.post("/nodes", zValidator("json", proxyConfigSchema), async (c) => {
 		const data = await c.req.json();
 		const cfg: ProxyConfig = { ...config, ...data };
