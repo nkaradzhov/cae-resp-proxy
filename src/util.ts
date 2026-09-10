@@ -31,10 +31,6 @@ export const interceptorSchema = z.object({
 	response: z.string(),
 });
 
-export const predefinedScenarioParamSchema = z.object({
-	scenario: z.enum(["remove-add", "remove", "add", "slot-shuffle"]),
-});
-
 export const slotMigrateEffectSchema = z.object({
 	effect: z.enum(["add", "remove", "remove-add", "slot-shuffle"]),
 });
@@ -42,8 +38,9 @@ export const slotMigrateEffectSchema = z.object({
 export type SlotMigrateEffect = z.infer<typeof slotMigrateEffectSchema>["effect"];
 
 export interface ActionTriggerRequirement {
-	dbconfig: unknown;
-	cluster: unknown;
+	dbconfig: Record<string, unknown> & { name: string };
+	cluster: { min_nodes: number; actual_nodes: number };
+	oss_cluster_api: { ip_type: string; endpoint_type: string };
 	description: string;
 }
 
@@ -66,11 +63,13 @@ export const actionTypeSchema = z.enum([
 	"reshard",
 	"sequence_of_actions",
 	"network_failure",
+	"network_latency",
 	"execute_rlutil_command",
 	"execute_rladmin_command",
 	"enable_entraid",
 	"upgrade",
 	"wait",
+	"wait_for_database_active",
 	"migrate",
 	"bind",
 	"update_cluster_config",
@@ -82,6 +81,9 @@ export const actionTypeSchema = z.enum([
 	"proxy_failure",
 	"cluster_failure",
 	"slot_migrate",
+	"topology_change_standalone",
+	"reset_cluster",
+	"collect_debuginfo",
 ]);
 
 export type ActionType = z.infer<typeof actionTypeSchema>;

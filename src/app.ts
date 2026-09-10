@@ -11,12 +11,11 @@ import {
 	type SendResult,
 } from "redis-monorepo/packages/test-utils/lib/proxy/redis-proxy.ts";
 import { executeAction } from "./actions/index.ts";
+import { generateTriggersForEffect } from "./actions/triggers.ts";
 import applyDefaultInterceptors from "./default_interceptors/index.ts";
 import ProxyStore, { makeId } from "./proxy-store.ts";
 import {
 	type ActionRecord,
-	type ActionTrigger,
-	type ListActionTriggersResponse,
 	actionIdParamSchema,
 	actionRequestSchema,
 	connectionIdsQuerySchema,
@@ -24,11 +23,11 @@ import {
 	encodingSchema,
 	getConfig,
 	interceptorSchema,
+	type ListActionTriggersResponse,
 	paramSchema,
 	parseBuffer,
 	proxyConfigSchema,
 	slotMigrateEffectSchema,
-	type SlotMigrateEffect,
 } from "./util.ts";
 
 const startNewProxy = (config: ProxyConfig) => {
@@ -204,11 +203,12 @@ export function createApp(testConfig?: ExtendedProxyConfig) {
 		actionStore.set(actionId, actionRecord);
 
 		// Execute the action asynchronously
+		actionRecord.status = "running";
 		executeAction(type, parameters, proxyStore, config)
 			.then((result) => {
 				actionRecord.status = result.status;
-				actionRecord.output = "Done";
-				actionRecord.error = result.error;
+				actionRecord.output = result.output ?? "Done";
+				actionRecord.error = result.error ?? null;
 			})
 			.catch((error) => {
 				actionRecord.status = "failed";
@@ -234,73 +234,16 @@ export function createApp(testConfig?: ExtendedProxyConfig) {
 		});
 	});
 
-	// Hardcoded triggers for each effect
-	const triggersMap: Record<SlotMigrateEffect, ActionTrigger[]> = {
-		add: [
-			{
-				name: "add-node-trigger-1",
-				description: "Trigger when a new node is added to the cluster",
-				requirements: [
-					{ dbconfig: {}, cluster: { minNodes: 3 }, description: "Requires at least 3 shards and 3 nodes" },
-				],
-			},
-			{
-				name: "add-node-trigger-2",
-				description: "Trigger for rebalancing after node addition",
-				requirements: [
-					{ dbconfig: {}, cluster: { healthy: true }, description: "Requires replication enabled and healthy cluster" },
-				],
-			},
-		],
-		remove: [
-			{
-				name: "remove-node-trigger-1",
-				description: "Trigger when a node is removed from the cluster",
-				requirements: [
-					{ dbconfig: {}, cluster: { minNodes: 2 }, description: "Requires at least 2 shards and 2 nodes" },
-				],
-			},
-			{
-				name: "remove-node-trigger-2",
-				description: "Trigger for slot migration before node removal",
-				requirements: [
-					{ dbconfig: {}, cluster: { noFailover: true }, description: "Requires persistence and no ongoing failover" },
-				],
-			},
-		],
-		"remove-add": [
-			{
-				name: "remove-add-trigger-1",
-				description: "Trigger for combined remove and add operation",
-				requirements: [
-					{ dbconfig: {}, cluster: { minNodes: 3 }, description: "Requires at least 3 shards and 3 nodes" },
-				],
-			},
-			{
-				name: "remove-add-trigger-2",
-				description: "Trigger for atomic node replacement",
-				requirements: [
-					{ dbconfig: {}, cluster: { quorum: true }, description: "Requires replication and quorum" },
-				],
-			},
-		],
-		"slot-shuffle": [
-			{
-				name: "slot-shuffle-trigger-1",
-				description: "Trigger for redistributing slots across nodes",
-				requirements: [
-					{ dbconfig: {}, cluster: { balanced: false }, description: "Requires at least 2 shards and unbalanced cluster" },
-				],
-			},
-			{
-				name: "slot-shuffle-trigger-2",
-				description: "Trigger for optimizing slot distribution",
-				requirements: [
-					{ dbconfig: {}, cluster: { healthy: true }, description: "Requires auto-balance enabled and healthy cluster" },
-				],
-			},
-		],
-	};
+	// GET /action - List all submitted actions
+	app.get("/action", (c) => {
+		const actions = Array.from(actionStore.values()).map((action) => ({
+			job_id: action.id,
+			action_type: action.type,
+			status: action.status,
+			submitted_at: action.submittedAt.toISOString(),
+		}));
+		return c.json({ actions });
+	});
 
 	// GET /slot-migrate - List action triggers for an effect
 	app.get("/slot-migrate", zValidator("query", slotMigrateEffectSchema), (c) => {
@@ -309,7 +252,7 @@ export function createApp(testConfig?: ExtendedProxyConfig) {
 		const response: ListActionTriggersResponse = {
 			effect,
 			cluster: { index: 0, nodes: proxyStore.nodeIds.length },
-			triggers: triggersMap[effect],
+			triggers: generateTriggersForEffect(effect, proxyStore.nodeIds.length),
 		};
 
 		return c.json(response);
